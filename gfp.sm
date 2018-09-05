@@ -1,0 +1,69 @@
+# Runs GFP to find gene fusions and use's sypark's filtering scripts
+# 2018.08.11 cjyoon
+import os 
+import re
+
+GFP = 'scripts/gfp_with_homologyCheck.py'
+MERGE = 'scripts/01_GFP_output_merge.py'
+ANNOVAR = 'scripts/02_GFP_annovar.py'
+EXONIC_FILTER = 'scripts/GFP_exonic_filter.py'
+PON_FILTER = 'scripts/GFP_filter_by_otherN.py'
+PON = '/home/users/cjyoon/scripts/gfp/GFP_thyN20_merged_split.txt'
+REFERENCE = '/home/users/data/01_reference/ucsc_hg19/ucsc_hg19_canonical.fa'
+GENEBED = '/home/users/tools/gfp/refGene_hg19_160411_collapsed_sorted.bed'
+TRANSCRIPT_FASTA = '/home/users/tools/gfp/refGene_hg19_160411_transcript.fasta'
+
+samples = set([re.sub('_R[0-9].fastq.gz$', '', i) for i in os.listdir('rna_fastq') if i.endswith('fastq.gz')])
+
+rule all:
+	input: 
+		expand('{sample}/fusion_summary_splits.txt.anv.fi.fi', sample=samples)
+
+rule gfp:
+	input:
+		GFP = GFP, 
+		fq1 = 'rna_fastq/{sample}_R1.fastq.gz',
+		fq2 = 'rna_fastq/{sample}_R2.fastq.gz',
+		reference = REFERENCE, 
+		genebed = GENEBED, 
+		transcript_fasta = TRANSCRIPT_FASTA,
+	output:
+		summary = '{sample}/fusion_summary.txt'
+	threads: 4
+	params:
+		sample = '{sample}'
+	log:
+		"logs/{sample}.gfp.log"
+	shell:
+		"({input.GFP} --num-threads {threads} --sample {params.sample} --fastq1 {input.fq1} --fastq2 {input.fq2} "
+		"--ref-fa {input.reference} --gene-bed {input.genebed} --out-dir {params.sample} --tx-fa {input.transcript_fasta})"
+		"&> {log}"
+
+
+rule merge_annotate_filter:
+	input:
+		summary = '{sample}/fusion_summary.txt',
+		MERGE = MERGE,
+		ANNOVAR = ANNOVAR, 
+		EXONIC_FILTER = EXONIC_FILTER, 
+		PON_FILTER = PON_FILTER,
+		pon = PON
+	output:
+		merged_output = '{sample}/fusion_summary_splits.txt', 
+		annovar_output = '{sample}/fusion_summary_splits.txt.anv', 
+		exonic_filter_output = '{sample}/fusion_summary_splits.txt.anv.fi', 
+		pon_filter_output = '{sample}/fusion_summary_splits.txt.anv.fi.fi', 
+
+	params:
+		sample = '{sample}'
+	threads: 1
+	log:
+		"logs/{sample}.merge_annotate_filer.log"
+	shell:
+		"(cd {params.sample}; "
+		"python {input.MERGE}; "
+		"python {input.ANNOVAR} fusion_summary_splits.txt; "
+		"python {input.EXONIC_FILTER} fusion_summary_splits.txt.anv; "
+		"python {input.PON_FILTER} fusion_summary_splits.txt.anv.fi /home/users/sypark/01_Python_files/GFP/GFP_thyN20_merged_split.txt;) &> {log} "
+
+
